@@ -6,7 +6,7 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// --- TINY CUSTOM ICONS (8x8 pixels) ---
+// --- TINY CUSTOM ICONS ---
 const unsigned char icon_bt[] PROGMEM = {
   0x10, 0x18, 0x54, 0x38, 0x54, 0x18, 0x10, 0x00
 };
@@ -23,15 +23,22 @@ ScreenState currentScreen = HOME_SCREEN;
 
 // --- VARIABLES ---
 int homeSelection = 0;       
-int batteryLevel = 85;       
+int batteryLevel = 10;       // Try changing this to 10 or 100 to test the battery fill!
 bool isPlaying = false; 
 String currentSong = "Not Playing";
 int currentMin = 0, currentSec = 30; 
 int totalMin = 5, totalSec = 55;     
 
-// Marquee Variables
+// --- MARQUEE TWEAK VARIABLES ---
 int textScrollX = 2; 
 unsigned long lastScrollTime = 0;
+
+// 1. TWEAK THESE VALUES TO CHANGE THE SCROLL FEEL:
+int scrollSpeed = 40;       // Lower number = faster scroll (milliseconds per pixel)
+int scrollPauseTime = 2000; // How long to wait before scrolling again (2000ms = 2 seconds)
+
+bool isPaused = true;       // Tracks if the text is currently "waiting" to scroll
+unsigned long pauseStartTime = 0; 
 
 void setup() {
   Serial.begin(115200);
@@ -47,23 +54,37 @@ void setup() {
 void loop() {
   checkSerialInput();
   
-  // --- SCROLL LOGIC ---
-  if (currentScreen == HOME_SCREEN) {
-    if (currentSong.length() > 21) { 
-      if (millis() - lastScrollTime > 150) { 
+  // --- THE NEW PRO-SCROLL LOGIC ---
+  if (currentScreen == HOME_SCREEN && currentSong.length() > 21) { 
+    
+    // Phase 1: Are we waiting before we scroll?
+    if (isPaused) {
+      if (millis() - pauseStartTime > scrollPauseTime) {
+        isPaused = false; // Time's up! Start moving.
+        lastScrollTime = millis();
+      }
+    } 
+    // Phase 2: We are actively scrolling!
+    else {
+      if (millis() - lastScrollTime > scrollSpeed) { 
         textScrollX--;
         
+        // Once the entire string is off the left side...
         if (textScrollX < (int)(currentSong.length() * -6)) {
-          textScrollX = 128; 
+          textScrollX = 2;              // Snap instantly back to the start position
+          isPaused = true;              // Turn the pause timer back on
+          pauseStartTime = millis();    // Record the time we paused
         }
+        
         lastScrollTime = millis();
         drawUI();
       }
-    } else {
-      if (textScrollX != 2) {
-        textScrollX = 2;
-        drawUI();
-      }
+    }
+  } else if (currentScreen == HOME_SCREEN && currentSong.length() <= 21) {
+    // If the song is short, keep it perfectly still
+    if (textScrollX != 2) {
+      textScrollX = 2;
+      drawUI();
     }
   }
 }
@@ -88,7 +109,13 @@ void checkSerialInput() {
           break;
         case 'p': 
           isPlaying = !isPlaying;
-          if(isPlaying && currentSong == "Not Playing") currentSong = "Bohemian Rhapsody (Remastered 2011)";
+          if(isPlaying && currentSong == "Not Playing") {
+            currentSong = "Bohemian Rhapsody (Remastered 2011)";
+            // Reset the scroll variables so it waits 2 seconds before sliding!
+            textScrollX = 2;
+            isPaused = true;
+            pauseStartTime = millis();
+          }
           else if (!isPlaying) {
              currentSong = "Not Playing";
              textScrollX = 2; 
@@ -113,8 +140,6 @@ void drawUI() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  
-  // THE FIX: Stop text from dropping to the next line!
   display.setTextWrap(false); 
 
   if (currentScreen == HOME_SCREEN) {
@@ -136,7 +161,7 @@ void drawUI() {
 
 // --- HOME SCREEN LAYOUT ---
 void drawHomeScreen() {
-  // 1. TOP ROW: Bluetooth and Battery
+  // 1. TOP ROW: Bluetooth
   if (homeSelection == 0) {
     display.fillRect(0, 0, 16, 12, SSD1306_WHITE);
     display.drawBitmap(4, 2, icon_bt, 8, 8, SSD1306_BLACK);
@@ -144,11 +169,24 @@ void drawHomeScreen() {
     display.drawBitmap(4, 2, icon_bt, 8, 8, SSD1306_WHITE);
   }
   
-  display.setCursor(95, 2);
+  // --- THE NEW BATTERY INDICATOR ---
+  // I shifted the text slightly left to make sure "100%" fits nicely
+  display.setCursor(85, 2);
   display.print(batteryLevel);
   display.print("%");
-  display.drawRect(115, 2, 10, 6, SSD1306_WHITE); 
-  display.fillRect(125, 3, 2, 4, SSD1306_WHITE);  
+  
+  // Draw the hollow shell
+  display.drawRect(113, 2, 10, 6, SSD1306_WHITE); 
+  display.fillRect(123, 3, 2, 4, SSD1306_WHITE);  
+
+  // Calculate the inner fill!
+  // The map() function takes the battery (0-100) and scales it to our pixel width (0-6)
+  int fillWidth = map(batteryLevel, 0, 100, 0, 6);
+  
+  // Only draw the fill if battery is greater than 0 to prevent weird graphical glitches
+  if (fillWidth > 0) {
+    display.fillRect(115, 4, fillWidth, 2, SSD1306_WHITE);
+  }
 
   // 2. SECOND ROW: "Select Song" Button
   display.setCursor(2, 18);
@@ -168,17 +206,14 @@ void drawHomeScreen() {
   display.setCursor(textScrollX > 0 ? textScrollX : 2, 38);
   display.print(currentSong);
   
-  // Clear the left edge so scrolling text doesn't bleed backward into the border
   display.fillRect(0, 38, 2, 10, SSD1306_BLACK);
   
-  // Play/Pause Icon
   if (isPlaying) {
     display.drawBitmap(2, 52, icon_play, 8, 8, SSD1306_WHITE);
   } else {
     display.drawBitmap(2, 52, icon_pause, 8, 8, SSD1306_WHITE);
   }
 
-  // Time Tracker
   display.setCursor(16, 52);
   display.print(currentMin);
   display.print(":");
