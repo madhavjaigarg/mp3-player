@@ -23,21 +23,20 @@ ScreenState currentScreen = HOME_SCREEN;
 
 // --- VARIABLES ---
 int homeSelection = 0;       
-int batteryLevel = 10;       // Try changing this to 10 or 100 to test the battery fill!
+int batteryLevel = 65;       
 bool isPlaying = false; 
-String currentSong = "Not Playing";
+String currentSong = "Not Playing"; // Default state until a song is picked
 int currentMin = 0, currentSec = 30; 
 int totalMin = 5, totalSec = 55;     
 
-// --- MARQUEE TWEAK VARIABLES ---
+// --- MARQUEE VARIABLES ---
 int textScrollX = 2; 
 unsigned long lastScrollTime = 0;
 
-// 1. TWEAK THESE VALUES TO CHANGE THE SCROLL FEEL:
-int scrollSpeed = 40;       // Lower number = faster scroll (milliseconds per pixel)
-int scrollPauseTime = 2000; // How long to wait before scrolling again (2000ms = 2 seconds)
+int scrollSpeed = 40;       
+int scrollPauseTime = 2000; 
 
-bool isPaused = true;       // Tracks if the text is currently "waiting" to scroll
+bool isPaused = true;       
 unsigned long pauseStartTime = 0; 
 
 void setup() {
@@ -54,26 +53,25 @@ void setup() {
 void loop() {
   checkSerialInput();
   
-  // --- THE NEW PRO-SCROLL LOGIC ---
+  // --- FIXED SCROLL LOGIC ---
   if (currentScreen == HOME_SCREEN && currentSong.length() > 21) { 
-    
-    // Phase 1: Are we waiting before we scroll?
     if (isPaused) {
       if (millis() - pauseStartTime > scrollPauseTime) {
-        isPaused = false; // Time's up! Start moving.
+        isPaused = false; 
         lastScrollTime = millis();
       }
     } 
-    // Phase 2: We are actively scrolling!
     else {
       if (millis() - lastScrollTime > scrollSpeed) { 
         textScrollX--;
         
-        // Once the entire string is off the left side...
-        if (textScrollX < (int)(currentSong.length() * -6)) {
-          textScrollX = 2;              // Snap instantly back to the start position
-          isPaused = true;              // Turn the pause timer back on
-          pauseStartTime = millis();    // Record the time we paused
+        // Calculate the exact pixel width of the text so it knows when to reset
+        int textWidth = currentSong.length() * 6; 
+        
+        if (textScrollX < -textWidth) {
+          textScrollX = 2;              
+          isPaused = true;              
+          pauseStartTime = millis();    
         }
         
         lastScrollTime = millis();
@@ -81,7 +79,6 @@ void loop() {
       }
     }
   } else if (currentScreen == HOME_SCREEN && currentSong.length() <= 21) {
-    // If the song is short, keep it perfectly still
     if (textScrollX != 2) {
       textScrollX = 2;
       drawUI();
@@ -89,7 +86,7 @@ void loop() {
   }
 }
 
-// --- THE NAVIGATION LOGIC ---
+// --- FIXED NAVIGATION LOGIC ---
 void checkSerialInput() {
   if (Serial.available() > 0) {
     char command = Serial.read();
@@ -108,17 +105,16 @@ void checkSerialInput() {
           uiChanged = true;
           break;
         case 'p': 
-          isPlaying = !isPlaying;
-          if(isPlaying && currentSong == "Not Playing") {
+          // If no song is loaded yet, load it up!
+          if (currentSong == "Not Playing") {
             currentSong = "Bohemian Rhapsody (Remastered 2011)";
-            // Reset the scroll variables so it waits 2 seconds before sliding!
             textScrollX = 2;
             isPaused = true;
             pauseStartTime = millis();
-          }
-          else if (!isPlaying) {
-             currentSong = "Not Playing";
-             textScrollX = 2; 
+            isPlaying = true;
+          } else {
+            // If a song is already loaded, just toggle the pause state!
+            isPlaying = !isPlaying;
           }
           uiChanged = true;
           break;
@@ -169,21 +165,15 @@ void drawHomeScreen() {
     display.drawBitmap(4, 2, icon_bt, 8, 8, SSD1306_WHITE);
   }
   
-  // --- THE NEW BATTERY INDICATOR ---
-  // I shifted the text slightly left to make sure "100%" fits nicely
+  // Battery Indicator
   display.setCursor(85, 2);
   display.print(batteryLevel);
   display.print("%");
   
-  // Draw the hollow shell
   display.drawRect(113, 2, 10, 6, SSD1306_WHITE); 
   display.fillRect(123, 3, 2, 4, SSD1306_WHITE);  
 
-  // Calculate the inner fill!
-  // The map() function takes the battery (0-100) and scales it to our pixel width (0-6)
   int fillWidth = map(batteryLevel, 0, 100, 0, 6);
-  
-  // Only draw the fill if battery is greater than 0 to prevent weird graphical glitches
   if (fillWidth > 0) {
     display.fillRect(115, 4, fillWidth, 2, SSD1306_WHITE);
   }
@@ -203,7 +193,8 @@ void drawHomeScreen() {
   display.drawLine(0, 32, 128, 32, SSD1306_WHITE);
 
   // 4. THE STATUS MENU (Bottom Section)
-  display.setCursor(textScrollX > 0 ? textScrollX : 2, 38);
+  // THE FIX: Allow textScrollX to go negative!
+  display.setCursor(textScrollX, 38);
   display.print(currentSong);
   
   display.fillRect(0, 38, 2, 10, SSD1306_BLACK);
