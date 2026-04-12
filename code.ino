@@ -6,8 +6,7 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// --- UPDATED TINY CUSTOM ICONS (8x8 pixels) ---
-// Redrawn to look exactly like the sharp, geometric Bluetooth Rune
+// --- TINY CUSTOM ICONS (8x8 pixels) ---
 const unsigned char icon_bt[] PROGMEM = {
   0x10, 0x18, 0x54, 0x38, 0x54, 0x18, 0x10, 0x00
 };
@@ -30,8 +29,8 @@ String currentSong = "Not Playing";
 int currentMin = 0, currentSec = 30; 
 int totalMin = 5, totalSec = 55;     
 
-// Marquee (Scrolling Text) Variables
-int textScrollX = 2; // Start at pixel 2
+// Marquee Variables
+int textScrollX = 2; 
 unsigned long lastScrollTime = 0;
 
 void setup() {
@@ -48,14 +47,12 @@ void setup() {
 void loop() {
   checkSerialInput();
   
-  // --- UPDATED SCROLL LOGIC ---
+  // --- SCROLL LOGIC ---
   if (currentScreen == HOME_SCREEN) {
-    // 21 characters is exactly how many fit on a 128px screen
     if (currentSong.length() > 21) { 
-      if (millis() - lastScrollTime > 150) { // Speed of scroll
+      if (millis() - lastScrollTime > 150) { 
         textScrollX--;
         
-        // Reset to the right edge once the whole string is off screen
         if (textScrollX < (int)(currentSong.length() * -6)) {
           textScrollX = 128; 
         }
@@ -63,7 +60,6 @@ void loop() {
         drawUI();
       }
     } else {
-      // If the song is short, force it to stay pinned to the left edge!
       if (textScrollX != 2) {
         textScrollX = 2;
         drawUI();
@@ -92,11 +88,10 @@ void checkSerialInput() {
           break;
         case 'p': 
           isPlaying = !isPlaying;
-          // Set to a super long string so you can watch the scroll activate!
           if(isPlaying && currentSong == "Not Playing") currentSong = "Bohemian Rhapsody (Remastered 2011)";
           else if (!isPlaying) {
              currentSong = "Not Playing";
-             textScrollX = 2; // Instantly reset position when stopped
+             textScrollX = 2; 
           }
           uiChanged = true;
           break;
@@ -118,6 +113,9 @@ void drawUI() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
+  
+  // THE FIX: Stop text from dropping to the next line!
+  display.setTextWrap(false); 
 
   if (currentScreen == HOME_SCREEN) {
     drawHomeScreen();
