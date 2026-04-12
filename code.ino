@@ -23,19 +23,17 @@ ScreenState currentScreen = HOME_SCREEN;
 
 // --- VARIABLES ---
 int homeSelection = 0;       
-int batteryLevel = 65;       
+int batteryLevel = 50;       
 bool isPlaying = false; 
-String currentSong = "Not Playing"; // Default state until a song is picked
+String currentSong = "Not Playing"; 
 int currentMin = 0, currentSec = 30; 
 int totalMin = 5, totalSec = 55;     
 
 // --- MARQUEE VARIABLES ---
 int textScrollX = 2; 
 unsigned long lastScrollTime = 0;
-
 int scrollSpeed = 40;       
 int scrollPauseTime = 2000; 
-
 bool isPaused = true;       
 unsigned long pauseStartTime = 0; 
 
@@ -53,8 +51,9 @@ void setup() {
 void loop() {
   checkSerialInput();
   
-  // --- FIXED SCROLL LOGIC ---
-  if (currentScreen == HOME_SCREEN && currentSong.length() > 21) { 
+  // --- THE NEW INFINITE LOOP & PAUSE LOGIC ---
+  // Only scroll if the song is long AND the music is actively playing
+  if (currentScreen == HOME_SCREEN && currentSong.length() > 21 && isPlaying) { 
     if (isPaused) {
       if (millis() - pauseStartTime > scrollPauseTime) {
         isPaused = false; 
@@ -65,10 +64,12 @@ void loop() {
       if (millis() - lastScrollTime > scrollSpeed) { 
         textScrollX--;
         
-        // Calculate the exact pixel width of the text so it knows when to reset
-        int textWidth = currentSong.length() * 6; 
+        // Calculate the exact pixel width of ONE copy of the song plus 5 spaces
+        // (6 pixels per character)
+        int singleWidth = (currentSong.length() + 5) * 6; 
         
-        if (textScrollX < -textWidth) {
+        // When the first copy completely clears the starting point, teleport back!
+        if (textScrollX <= 2 - singleWidth) {
           textScrollX = 2;              
           isPaused = true;              
           pauseStartTime = millis();    
@@ -78,15 +79,18 @@ void loop() {
         drawUI();
       }
     }
-  } else if (currentScreen == HOME_SCREEN && currentSong.length() <= 21) {
+  } 
+  else if (currentScreen == HOME_SCREEN) {
+    // If the song is short OR the music is paused, lock it to the start position
     if (textScrollX != 2) {
       textScrollX = 2;
+      isPaused = true; // Reset the pause timer so it waits 2s when you hit play again
       drawUI();
     }
   }
 }
 
-// --- FIXED NAVIGATION LOGIC ---
+// --- NAVIGATION LOGIC ---
 void checkSerialInput() {
   if (Serial.available() > 0) {
     char command = Serial.read();
@@ -105,7 +109,6 @@ void checkSerialInput() {
           uiChanged = true;
           break;
         case 'p': 
-          // If no song is loaded yet, load it up!
           if (currentSong == "Not Playing") {
             currentSong = "Bohemian Rhapsody (Remastered 2011)";
             textScrollX = 2;
@@ -113,7 +116,6 @@ void checkSerialInput() {
             pauseStartTime = millis();
             isPlaying = true;
           } else {
-            // If a song is already loaded, just toggle the pause state!
             isPlaying = !isPlaying;
           }
           uiChanged = true;
@@ -131,7 +133,7 @@ void checkSerialInput() {
   }
 }
 
-// --- THE MASTER DRAWING FUNCTION ---
+// --- MASTER DRAWING FUNCTION ---
 void drawUI() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -193,18 +195,26 @@ void drawHomeScreen() {
   display.drawLine(0, 32, 128, 32, SSD1306_WHITE);
 
   // 4. THE STATUS MENU (Bottom Section)
-  // THE FIX: Allow textScrollX to go negative!
   display.setCursor(textScrollX, 38);
-  display.print(currentSong);
   
+  // THE FIX: If playing, print the string twice with a 5-space gap to create the loop illusion!
+  if (currentSong.length() > 21 && isPlaying) {
+    display.print(currentSong + "     " + currentSong);
+  } else {
+    display.print(currentSong);
+  }
+  
+  // Clear the left border to prevent bleed
   display.fillRect(0, 38, 2, 10, SSD1306_BLACK);
   
+  // Play/Pause Icon
   if (isPlaying) {
     display.drawBitmap(2, 52, icon_play, 8, 8, SSD1306_WHITE);
   } else {
     display.drawBitmap(2, 52, icon_pause, 8, 8, SSD1306_WHITE);
   }
 
+  // Time Tracker
   display.setCursor(16, 52);
   display.print(currentMin);
   display.print(":");
