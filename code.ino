@@ -13,26 +13,10 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define MP3_TX 17
 
 // --- TINY CUSTOM ICONS ---
-const unsigned char icon_bt[] PROGMEM = {
-  0x10, 0x18, 0x54, 0x38, 0x54, 0x18, 0x10, 0x00
-};
-const unsigned char icon_play[] PROGMEM = {
-  0x00, 0x08, 0x0C, 0x0E, 0x0F, 0x0E, 0x0C, 0x08
-};
-const unsigned char icon_pause[] PROGMEM = {
-  0x00, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x00
-};
-// NEW: A tiny crossing-arrows shuffle icon!
-const unsigned char icon_shuffle[] PROGMEM = {
-  0x06, // 00000110
-  0x4B, // 01001011
-  0x24, // 00100100
-  0x18, // 00011000
-  0x18, // 00011000
-  0x24, // 00100100
-  0x4B, // 01001011
-  0x06  // 00000110
-};
+const unsigned char icon_bt[] PROGMEM = {0x10, 0x18, 0x54, 0x38, 0x54, 0x18, 0x10, 0x00};
+const unsigned char icon_play[] PROGMEM = {0x00, 0x08, 0x0C, 0x0E, 0x0F, 0x0E, 0x0C, 0x08};
+const unsigned char icon_pause[] PROGMEM = {0x00, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x1B, 0x00};
+const unsigned char icon_shuffle[] PROGMEM = {0x06, 0x4B, 0x24, 0x18, 0x18, 0x24, 0x4B, 0x06};
 
 // --- SYSTEM STATES & VARIABLES ---
 enum ScreenState { HOME_SCREEN, BLUETOOTH_MENU, ARTIST_MENU, ALBUM_MENU, TRACK_MENU };
@@ -55,17 +39,149 @@ unsigned long pauseStartTime = 0;
 const int maxVisible = 4;   
 int windowTop = 0;          
 int currentIndex = 0;       
-int selectedAlbumIndex = 0; // Remembers which album title to show on the track screen
+int activeArtist = 0; // Remembers which artist we clicked
+int activeAlbum = 0;  // Remembers which album we clicked
 
-// --- MOCK DATABASE ---
-const int NUM_ARTISTS = 3;
-String artists[NUM_ARTISTS] = {"Krishna Das", "The Neighbourhood", "Eminem"};
+// ==========================================
+// --- THE DATABASE BLUEPRINTS ---
+// ==========================================
+struct Album {
+  const char* title;
+  int startIndex;  // The actual SD card file number where this album starts
+  int trackCount;  // How many songs are in this album
+};
 
-const int NUM_ALBUMS = 7;
-String albums[NUM_ALBUMS] = {"Infinite", "The Slim Shady LP", "The Marshall Mathers LP", "The Eminem Show", "Encore", "Relapse", "Recovery"};
+struct Artist {
+  const char* name;
+  int folderNum;          // The SD Folder (01, 02...)
+  int albumCount;         // How many albums to show
+  Album albums[20];       // Max 20 albums
+  const char* tracks[160]; // Max 160 flat tracks
+};
 
-const int NUM_TRACKS = 8;
-String tracks[NUM_TRACKS] = {"Play", "Shuffle", "Placeholder 1", "Placeholder 2", "Placeholder 3", "Placeholder 4", "Placeholder 5", "Placeholder 6"};
+// ==========================================
+// --- THE MASTER DATA TABLE ---
+// ==========================================
+const int NUM_ARTISTS = 2;
+
+const Artist database[NUM_ARTISTS] = {
+  // --- ARTIST 1: EMINEM (Folder 01) ---
+  {
+    "Eminem", 1, 8, 
+    { // ALBUMS
+      {"Encore", 1, 20},
+      {"Kamikaze", 21, 13},
+      {"Music To Be Murdered By", 34, 20},
+      {"Recovery", 54, 19},
+      {"The Eminem Show", 73, 20},
+      {"The Marshall Mathers LP", 93, 18},
+      {"The Slim Shady LP", 111, 20},
+      {"Singles", 131, 4}
+    },
+    { // FLAT TRACK LIST (Index 0 is blank, Track 1 is at Index 1)
+      "", 
+      // Encore (1-20)
+      "Curtains up", "Evil Deeds", "Never Enough", "Yellow Brick Road", "Like Toy Soldiers", 
+      "Mosh", "Puke", "My 1st Single", "Paul (Skit)", "Rain Man", "Big Weenie", "Em Calls Paul", 
+      "Just Lose it", "Ass Like That", "Spend Some Time", "Mockingbird", "Crazy In Love", 
+      "One Shot 2 Shot", "Final Thoughts", "Curtains Down",
+      // Kamikaze (21-33)
+      "The Ringer", "Greatest", "Lucky You", "Paul(Skit)", "Normal", "Em Calls Paul", 
+      "Stepping Stones", "Not Alike", "Kamikaze", "Fall", "Nice Guy", "Good Guy", "Venom"
+      // Music To Be Murdered By 
+      "Premonition","Unaccommodating","You Gon' Learn","Alfred","Those Kinda Nights","In Too Deep","Godzilla","Darkness","Leaving Heaven",
+      "Yah Yah","Stepdad (Intro)","Stepdad","Marsh","Never Love Again","Little Engine","Lock It Up","Farewell","No Regrets","I Will","Alfred",
+      //Recovery
+      "Cold Wind Blows", "Talkin' 2 Myself", "On Fire","Won't Back Down","W.T.P.","Going Through Changes","Not Afraid","Seduction","No Love",
+      "Space Bound","Cinderella Man","To Life","So Bad","Almost Famous","Love The Way You Lie","You're Never Over","Untitled","Ridaz","Session One",
+      //The Eminem Show
+      "Curtains Up (Skit)","White America","Business","Cleanin' Out My Closet","Square Dance","The Kiss (Skit)","Soldier",
+      "Say Goodbye Hollywood","Drips","Without Me","Paul Rosenberg (Skit)","Sing For The Moment","Superman","Hailie's Song","Steve Barman","When The Music Stops",
+      "Say What You Say","Till I Collapse","My Dad's Gone Crazy","Curtains Close",
+      //The Marshall Mathers LP
+      "Public Service Announcement","Kill You","Stan","Paul (Skit)","Who Knew","Steve Berman","The Way I Am","The Real Slim Shady",
+      "Remember Me","I'm Back","Marshall Mathers","Ken Kaniff (Skit)","Drug Ballad","Amityville","Bitch Please II","Kim","Under The Influence","Criminal",
+      //The Slim Shady LP
+      "Public Service Anouncement","My Name Is","Guilty Conscience","Brain Damage","Paul","If I Had","97 Bonnie & Clyde","Bitch","Role Model","Lounge",
+      "My Fault","Ken Kaniff","Come On Everybody","Rock Bottom","Just Don't Give a F","Soap","As The World Turns","I'm Shady","Bad Meets Evil","Still Don't Give",
+      //Singles
+      "Lose Yourself","When I'm Gone","Rap God","Shake That",
+    }
+  },
+
+  // --- ARTIST 2: KRISHNA DAS (Folder 02) ---
+  {
+    "Krishna Das", 2, 15, 
+    { // ALBUMS
+      {"All One", 1, 4},
+      {"Breath of the Heart", 5, 6},
+      {"Door Of Faith", 11, 7},
+      {"Flow Of Grace", 18, 9},
+      {"Greatest Hits Of the Kali Yuga", 27, 10},
+      {"Heart As Wide As The Wordld", 37, 7},
+      {"Heart Full Of Soul", 44, 12},
+      {"Home In The Heart", 56, 8},
+      {"Kirtan Wallah", 64, 9},
+      {"Live Ananda", 73, 5},
+      {"Live On Earth", 78, 14},
+      {"One Track Heart", 92, 11},
+      {"Peace Of My Heart", 103, 5},
+      {"Pilgrim Heart", 108, 12},
+      {"Pilgrim Of The Heart", 120, 31},
+      {"Trust In The Heart", 151, 6}
+    },
+    { // FLAT TRACK LIST
+      "",
+      // All One (1-4)
+      "Calling From Afar", "Refuge In The Name", "Rock In A Heart Space", "Township Krishna",
+      // Breath Of The Heart (5-10)
+      "Baba Hanuman", "Kainchi Hare Krishna", "Ma Durga", "Kashi Vishwanath Gange", 
+      "Om Namo Bhagavate Vasudevaya", "Brindavan Hare Ram",
+      //Door Of Faith
+      "Puja", "Sita's Prayer / Hey Mata Durga","Mere Gurudev","Rudrashtakam","Jai Jagadisha Hare",
+      "Sri Hanuman Chalisa / Gate Of Sweet Nectar","God Is Real / Hare Ram",
+      //Flow Of Grace
+      "Sri Ram Chalisa","Hallelujah Chalisa","Good Ole Chalisa","Nina Chalisa","Mountain Chalisa",
+      "Bernie's Chalisa","Ring Song / Jaya Siya Ram","Hanuman Chalisa (Slow)","Hanuman Chalisa (Phrase By Phrase)",
+      //Greatest Hits Of The Kali Yuga
+      "Bhajelo-ji Hanuman","Namah Shivaya","Ma Durga","Hara Hara Mahadev","Mountain Hare Krishna",
+      "Hanuman Baba","Shri Guru Charanam","Devi Puja","Mere Guru Dev","Brindavan Hare Ram",
+      //Heart As Wide As The World
+      "My Foolish Heart / Bhaja Govinda", "Narayana / For Your Love","Hallelujah Shri Ram",
+      "Shri Ram Jai Ram","Shiva Puja & Chant","Sitaram","By Your Grace _ Jai Gurudev",
+      //Heart Full Of Soul
+      "Hanuman Prayer","Shri Ram Jai Ram Jai Jai Ram","Om Namoh Bhagavate Vasudevaya","Govinda Hare Gopala Hare",
+      "Devakinandan Gopala","Radhe Radhe Shyam","Goddess Prayer","Jaya Jagatambe Ma Durga","All One (Hare Krishna)","Om Namah Shivaya","Jaya Bhagavan","Jesus on the Main Line",
+      //Home in The Heart
+      "Om Sri Sita Ram","Hanuman Mantra","Amitabha Mantra","Yogi Hanuman Chalisa",
+      "Mata Durga","Kalabinashini Kali","Lokah Samastah Sukhino Bhavantu","Goddess Come Down",
+      //Kirtan Wallah
+      "Radhe Govinda","Sri Argala Stotram / Show Me Love","Waltzing My Krishna","Saraswati",
+      "4AM Hanuman Chalisa","Tara's Mantra","Sri Bajrang Baan","I Phoned Govinda","My Foolish Heart / Bhajagovindam",
+      //Live Ananda
+      "Samadhi Sitaram","Hare Krishna","Baba Hanuman","Namah Shivaya","Devi Puja",
+      //Live On Earth
+      "Radhe Shyam","Samadhi Sita Ram","Shri Guru Charanam","Three Rivers Hare Krishna","Hanuman Puja",
+      "Hanuman Chaleesa","Sita Ram","Jaya Bhagavan","Devi Puja","Jaya Jagatambe","Mountain Hare Krishna","Namah Shivaya","Rama Bolo","Shri Krishna Govinda Gopala",
+      //One Track Heart
+      "Hara Hara Mahaadeva","Devi Puja","Kali Durge","The Krishna Waltz","Hanuman Chaleesa",
+      "Forgiveness","Prayer To The Goddess For Forgiveness","Hare (Mc) Krishna","Prayer To Hanuman","Shri Ram Jai Ram","Brindavan Hare Ram",
+      //Peace Of My Heart
+      "Prema Hare Ram","The Blue Krishna Waltz","Jai Shiva Omkara","Hanuman Bhajan","Om Sri Matre Namaha",
+      //Pilgrim Heart
+      "Namah Shivaya","Govinda Hare","Mountain Hare Krishna","Mahamantra Meltdown","Hara Hara Mahader","Kalabinashini Kali",
+      "The Goddess Suite - Mother Song","Devi Puja","Jaya Jayatambe","Yah Devi","Devi Rave","The Ring Song",
+      //Pilgrim Of The Heart
+     "Introduction","Chanting The Divine Names","God Is Running After Us","Falling In Love with Who We Are","The Natural Unfolding Of The Heart","Faith, The Guru, Surrender, and Grace",
+     "Meeting Ram Dass","The Beginning of Faith","Chant Shri Ram","Waking Up","To Lose One's Self In Love","Your Life as Your Teacher",
+     "Feeding our Own Hearts","Introduction 2","Drawn Toward Chant","Chant Jaya Jagatambe",
+     "Hanuman The Monkey God","Chant Baba Hanuman","Searching For Neem Karoli Baba","Meeting Maharaj ji","Stories Of Maharaj ji","Too Much Compassion",
+     "Introduction 3","Burning With Longing Fire","Leaving India","Chant Jaya Bhagavan","The Path Of The Heart","Finding Courage","Grace Is The Unseen Hand","The Absolute Power Of Love","Chant Om Namah Shivaya",
+     //Trust in The Heart
+     "Guru Puja","Sundhara Chalisa","Namoh","Devi Chant","River Of Mahamantra","Prema Chalisa",
+    }
+  }
+};
 
 
 void setup() {
@@ -73,13 +189,13 @@ void setup() {
   Serial2.begin(9600, SERIAL_8N1, MP3_RX, MP3_TX); 
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED allocation failed"));
-    for(;;);
+    Serial.println(F("OLED failed")); for(;;);
   }
 
-  delay(500); 
-  uint8_t bassCommand[] = {0x7E, 0xFF, 0x06, 0x07, 0x00, 0x00, 0x05, 0xEF};
-  Serial2.write(bassCommand, 8);
+  // Hardware Bass Boost
+  //delay(500); 
+  //uint8_t bassCommand[] = {0x7E, 0xFF, 0x06, 0x07, 0x00, 0x00, 0x05, 0xEF};
+  //Serial2.write(bassCommand, 8);
   
   drawUI();
 }
@@ -98,38 +214,29 @@ void updateBattery() {
   // batteryLevel = calcPercent; 
 }
 
+// Rotating Text
 void handleMarquee() {
   if (currentScreen == HOME_SCREEN && currentSong.length() > 21 && isPlaying) { 
     if (isPaused) {
-      if (millis() - pauseStartTime > scrollPauseTime) {
-        isPaused = false; 
-        lastScrollTime = millis();
-      }
-    } 
-    else {
+      if (millis() - pauseStartTime > scrollPauseTime) { isPaused = false; lastScrollTime = millis(); }
+    } else {
       if (millis() - lastScrollTime > scrollSpeed) { 
         textScrollX--;
         int singleWidth = (currentSong.length() + 5) * 6; 
         if (textScrollX <= 2 - singleWidth) {
-          textScrollX = 2;              
-          isPaused = true;              
-          pauseStartTime = millis();    
+          textScrollX = 2; isPaused = true; pauseStartTime = millis();    
         }
-        lastScrollTime = millis();
-        drawUI();
+        lastScrollTime = millis(); drawUI();
       }
     }
-  } 
-  else if (currentScreen == HOME_SCREEN) {
-    if (textScrollX != 2) {
-      textScrollX = 2;
-      isPaused = true; 
-      drawUI();
-    }
+  } else if (currentScreen == HOME_SCREEN) {
+    if (textScrollX != 2) { textScrollX = 2; isPaused = true; drawUI(); }
   }
 }
 
+// ==========================================
 // --- NAVIGATION LOGIC ---
+// ==========================================
 void checkSerialInput() {
   if (Serial.available() > 0) {
     char command = Serial.read();
@@ -138,17 +245,12 @@ void checkSerialInput() {
     // --- HOME SCREEN ---
     if (currentScreen == HOME_SCREEN) {
       switch (command) {
-        case 'w': case 's': 
-          homeSelection = (homeSelection == 0) ? 1 : 0; uiChanged = true; break;
+        case 'w': case 's': homeSelection = (homeSelection == 0) ? 1 : 0; uiChanged = true; break;
         case 'e': 
           if (homeSelection == 0) currentScreen = BLUETOOTH_MENU;
           if (homeSelection == 1) { currentScreen = ARTIST_MENU; currentIndex = 0; windowTop = 0; }
           uiChanged = true; break;
         case 'p': 
-          if (currentSong == "Not Playing") {
-            currentSong = "Lose Yourself (Original Soundtrack)";
-            textScrollX = 2; isPaused = true; pauseStartTime = millis();
-          }
           isPlaying = !isPlaying; uiChanged = true; break;
       }
     } 
@@ -159,47 +261,56 @@ void checkSerialInput() {
       if (command == 'w') { scrollViewportUp(NUM_ARTISTS); uiChanged = true; }
       if (command == 's') { scrollViewportDown(NUM_ARTISTS); uiChanged = true; }
       if (command == 'e') { 
+        activeArtist = currentIndex; // Save Artist
         currentScreen = ALBUM_MENU; currentIndex = 0; windowTop = 0; uiChanged = true; 
       }
     }
 
     // --- ALBUM MENU ---
     else if (currentScreen == ALBUM_MENU) {
-      if (command == 'b') { currentScreen = ARTIST_MENU; currentIndex = 0; windowTop = 0; uiChanged = true; }
-      if (command == 'w') { scrollViewportUp(NUM_ALBUMS); uiChanged = true; }
-      if (command == 's') { scrollViewportDown(NUM_ALBUMS); uiChanged = true; }
+      if (command == 'b') { currentScreen = ARTIST_MENU; currentIndex = activeArtist; windowTop = 0; uiChanged = true; }
+      if (command == 'w') { scrollViewportUp(database[activeArtist].albumCount); uiChanged = true; }
+      if (command == 's') { scrollViewportDown(database[activeArtist].albumCount); uiChanged = true; }
       if (command == 'e') {
-        selectedAlbumIndex = currentIndex; 
-        currentScreen = TRACK_MENU;
-        currentIndex = 0; windowTop = 0; 
-        uiChanged = true;
+        activeAlbum = currentIndex; // Save Album
+        currentScreen = TRACK_MENU; currentIndex = 0; windowTop = 0; uiChanged = true;
       }
     }
 
     // --- TRACK MENU ---
     else if (currentScreen == TRACK_MENU) {
-      if (command == 'b') { currentScreen = ALBUM_MENU; currentIndex = selectedAlbumIndex; windowTop = 0; uiChanged = true; }
-      if (command == 'w') { scrollViewportUp(NUM_TRACKS); uiChanged = true; }
-      if (command == 's') { scrollViewportDown(NUM_TRACKS); uiChanged = true; }
+      // Total items = track count + 2 (for the dynamic Play & Shuffle options)
+      int totalItems = database[activeArtist].albums[activeAlbum].trackCount + 2;
+      
+      if (command == 'b') { currentScreen = ALBUM_MENU; currentIndex = activeAlbum; windowTop = 0; uiChanged = true; }
+      if (command == 'w') { scrollViewportUp(totalItems); uiChanged = true; }
+      if (command == 's') { scrollViewportDown(totalItems); uiChanged = true; }
+      
       if (command == 'e') {
-        
-        // THE FIX: Check if they clicked "Play" (0) or "Shuffle" (1)
-        if (currentIndex == 0 || currentIndex == 1) {
-          // If so, load the first actual song (Index 2)
-          currentSong = tracks[2]; 
+        int folder = database[activeArtist].folderNum;
+        int startIndex = database[activeArtist].albums[activeAlbum].startIndex;
+        int targetFile = 0;
+
+        if (currentIndex == 0) {
+          // "PLAY" CLICKED - Play the first song of the album
+          targetFile = startIndex;
+          currentSong = database[activeArtist].tracks[startIndex];
+        } else if (currentIndex == 1) {
+          // "SHUFFLE" CLICKED
+          targetFile = startIndex; // Math for actual shuffle comes later!
+          currentSong = String(database[activeArtist].tracks[startIndex]) + " (Shuffle)";
         } else {
-          // Otherwise, load whatever track they actually clicked
-          currentSong = tracks[currentIndex]; 
+          // SPECIFIC SONG CLICKED
+          targetFile = startIndex + (currentIndex - 2); 
+          currentSong = database[activeArtist].tracks[targetFile];
         }
+
+        // ---> SEND TO MP3 PLAYER HERE! <---
+        // mp3.playFolderTrack16(folder, targetFile);
 
         currentScreen = HOME_SCREEN;
         isPlaying = true;
-        
-        // Reset the scrolling text for the new song
-        textScrollX = 2; 
-        isPaused = true; 
-        pauseStartTime = millis();
-        
+        textScrollX = 2; isPaused = true; pauseStartTime = millis();
         uiChanged = true;
       }
     }
@@ -229,17 +340,34 @@ void scrollViewportUp(int listSize) {
   } else if (currentIndex < windowTop) { windowTop--; }
 }
 
+// ==========================================
 // --- DRAWING FUNCTIONS ---
+// ==========================================
 void drawUI() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setTextWrap(false); 
 
-  if (currentScreen == HOME_SCREEN) drawHomeScreen();
-  else if (currentScreen == ARTIST_MENU) drawViewportMenu("ARTISTS", artists, NUM_ARTISTS);
-  else if (currentScreen == ALBUM_MENU) drawViewportMenu("EMINEM ALBUMS", albums, NUM_ALBUMS);
-  else if (currentScreen == TRACK_MENU) drawTrackMenu();
+  if (currentScreen == HOME_SCREEN) {
+    drawHomeScreen();
+  } 
+  else if (currentScreen == ARTIST_MENU) {
+    // Generate temporary array of artist names
+    String artistNames[NUM_ARTISTS];
+    for(int i=0; i<NUM_ARTISTS; i++) artistNames[i] = database[i].name;
+    drawViewportMenu("ARTISTS", artistNames, NUM_ARTISTS);
+  } 
+  else if (currentScreen == ALBUM_MENU) {
+    // Generate temporary array of album titles for the chosen artist
+    int numAlbs = database[activeArtist].albumCount;
+    String albTitles[20];
+    for(int i=0; i<numAlbs; i++) albTitles[i] = database[activeArtist].albums[i].title;
+    drawViewportMenu(database[activeArtist].name, albTitles, numAlbs);
+  } 
+  else if (currentScreen == TRACK_MENU) {
+    drawTrackMenu();
+  } 
   else if (currentScreen == BLUETOOTH_MENU) {
     display.setCursor(10, 20); display.print("--- BT MENU ---");
     display.setCursor(10, 40); display.print("(Press 'b' back)");
@@ -250,8 +378,7 @@ void drawUI() {
 void drawViewportMenu(String title, String list[], int listSize) {
   display.fillRect(0, 0, 128, 11, SSD1306_WHITE);
   display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
-  display.setCursor(2, 2);
-  display.print(title);
+  display.setCursor(2, 2); display.print(title);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
   
   int yPos = 16;
@@ -260,8 +387,7 @@ void drawViewportMenu(String title, String list[], int listSize) {
     if (actualItemIndex >= listSize) break; 
 
     display.setCursor(2, yPos);
-    if (actualItemIndex == currentIndex) display.print("> ");
-    else display.print("  "); 
+    if (actualItemIndex == currentIndex) display.print("> "); else display.print("  "); 
     
     display.print(list[actualItemIndex]);
     yPos += 12; 
@@ -273,47 +399,47 @@ void drawViewportMenu(String title, String list[], int listSize) {
   display.fillRect(126, barY, 2, barHeight, SSD1306_WHITE);
 }
 
-// NEW: Special drawer just for the Track Menu to handle the icons!
 void drawTrackMenu() {
-  // Use the selected album name as the title bar
+  // Title Bar uses the Album name
   display.fillRect(0, 0, 128, 11, SSD1306_WHITE);
   display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
   display.setCursor(2, 2);
-  
-  // Truncate the album title if it's too long, or just print it
-  display.print(albums[selectedAlbumIndex]); 
+  display.print(database[activeArtist].albums[activeAlbum].title); 
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
   
+  int trackCount = database[activeArtist].albums[activeAlbum].trackCount;
+  int totalItems = trackCount + 2; // +2 for Play and Shuffle
+  int startIndex = database[activeArtist].albums[activeAlbum].startIndex;
+
   int yPos = 16;
   for (int i = 0; i < maxVisible; i++) {
     int actualItemIndex = windowTop + i;
-    if (actualItemIndex >= NUM_TRACKS) break; 
+    if (actualItemIndex >= totalItems) break; 
 
-    // Draw the selection cursor
     display.setCursor(2, yPos);
-    if (actualItemIndex == currentIndex) display.print("> ");
-    else display.print("  "); 
+    if (actualItemIndex == currentIndex) display.print("> "); else display.print("  "); 
     
-    int textX = 14; // Default starting pixel for text
+    int textX = 14; 
     
-    // Inject icons for the first two items
+    // Dynamic Play and Shuffle Injection
     if (actualItemIndex == 0) { 
       display.drawBitmap(14, yPos, icon_play, 8, 8, SSD1306_WHITE);
-      textX = 26; // Push text further right to make room for the icon
+      display.setCursor(26, yPos); display.print("Play");
     } else if (actualItemIndex == 1) { 
       display.drawBitmap(14, yPos, icon_shuffle, 8, 8, SSD1306_WHITE);
-      textX = 26; 
+      display.setCursor(26, yPos); display.print("Shuffle");
+    } else {
+      // Pull real track name from the flat array!
+      display.setCursor(textX, yPos);
+      display.print(database[activeArtist].tracks[startIndex + (actualItemIndex - 2)]);
     }
-    
-    display.setCursor(textX, yPos);
-    display.print(tracks[actualItemIndex]);
     yPos += 12; 
   }
   
   // Scrollbar
-  int barHeight = (64 - 16) / NUM_TRACKS;
+  int barHeight = (64 - 16) / totalItems;
   if (barHeight < 2) barHeight = 2;
-  int barY = 16 + (windowTop * ((64 - 16) / NUM_TRACKS));
+  int barY = 16 + (windowTop * ((64 - 16) / totalItems));
   display.fillRect(126, barY, 2, barHeight, SSD1306_WHITE);
 }
 
