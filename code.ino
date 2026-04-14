@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <YX5300_ESP32.h>
 
 // --- DISPLAY SETTINGS ---
 #define SCREEN_WIDTH 128
@@ -34,6 +35,10 @@ int scrollSpeed = 40;
 int scrollPauseTime = 2000; 
 bool isPaused = true;       
 unsigned long pauseStartTime = 0; 
+int menuScrollX = 14; 
+unsigned long lastMenuScrollTime = 0;
+bool isMenuPaused = true;
+unsigned long menuPauseStartTime = 0;
 
 // --- VIEWPORT VARIABLES ---
 const int maxVisible = 4;   
@@ -183,14 +188,18 @@ const Artist database[NUM_ARTISTS] = {
   }
 };
 
+//Defining Mp3 Module
+YX5300_ESP32 mp3;
 
 void setup() {
-  Serial.begin(115200);
-  Serial2.begin(9600, SERIAL_8N1, MP3_RX, MP3_TX); 
+  mp3 = YX5300_ESP32(Serial2, 16, 17); 
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("OLED failed")); for(;;);
   }
+  
+  Serial.begin(115200);
+  mp3.enableDebugging();
 
   // Hardware Bass Boost
   //delay(500); 
@@ -204,6 +213,43 @@ void loop() {
   checkSerialInput();
   updateBattery();
   handleMarquee();
+  handleMenuMarquee();
+}
+
+//Handle Menu Scrolling
+void handleMenuMarquee() {
+  // Only scroll if we are in the Track Menu and highlighting an actual song
+  if (currentScreen == TRACK_MENU && currentIndex >= 2) {
+    int startIndex = database[activeArtist].albums[activeAlbum].startIndex;
+    const char* highlightedTrack = database[activeArtist].tracks[startIndex + (currentIndex - 2)];
+    
+    // Only scroll if the name is longer than 16 characters!
+    if (strlen(highlightedTrack) > 16) { 
+      if (isMenuPaused) {
+        if (millis() - menuPauseStartTime > 1000) { // The 1-Second Delay!
+          isMenuPaused = false; 
+          lastMenuScrollTime = millis();
+        }
+      } else {
+        if (millis() - lastMenuScrollTime > scrollSpeed) { 
+          menuScrollX--;
+          int textWidth = strlen(highlightedTrack) * 6;
+          
+          // If it scrolls completely out of view, snap it back to the start and pause again
+          if (menuScrollX <= 14 - textWidth) {
+            menuScrollX = 14;              
+            isMenuPaused = true;              
+            menuPauseStartTime = millis();    
+          }
+          lastMenuScrollTime = millis();
+          drawUI();
+        }
+      }
+    } else if (menuScrollX != 14) {
+      // If we move to a short track, reset the variables
+      menuScrollX = 14; isMenuPaused = true; drawUI();
+    }
+  }
 }
 
 void updateBattery() {
@@ -306,7 +352,7 @@ void checkSerialInput() {
         }
 
         // ---> SEND TO MP3 PLAYER HERE! <---
-        // mp3.playFolderTrack16(folder, targetFile);
+        mp3.playTrackInFolder(targetFile, folder);
 
         currentScreen = HOME_SCREEN;
         isPlaying = true;
@@ -320,7 +366,15 @@ void checkSerialInput() {
       if (command == 'b') { currentScreen = HOME_SCREEN; uiChanged = true; }
     }
 
-    if (uiChanged) drawUI();
+    //Checks for the menu scroll
+    if (uiChanged) {
+      // Reset the menu scroll every time you move the cursor
+      menuScrollX = 14;
+      isMenuPaused = true;
+      menuPauseStartTime = millis();
+      
+      drawUI(); 
+    }
   }
 }
 
@@ -375,6 +429,8 @@ void drawUI() {
   display.display();
 }
 
+
+
 void drawViewportMenu(String title, String list[], int listSize) {
   display.fillRect(0, 0, 128, 11, SSD1306_WHITE);
   display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
@@ -399,6 +455,8 @@ void drawViewportMenu(String title, String list[], int listSize) {
   display.fillRect(126, barY, 2, barHeight, SSD1306_WHITE);
 }
 
+
+
 void drawTrackMenu() {
   // Title Bar uses the Album name
   display.fillRect(0, 0, 128, 11, SSD1306_WHITE);
@@ -415,13 +473,10 @@ void drawTrackMenu() {
   for (int i = 0; i < maxVisible; i++) {
     int actualItemIndex = windowTop + i;
     if (actualItemIndex >= totalItems) break; 
-
-    display.setCursor(2, yPos);
-    if (actualItemIndex == currentIndex) display.print("> "); else display.print("  "); 
     
     int textX = 14; 
     
-    // Dynamic Play and Shuffle Injection
+    // 1. DRAW TEXT FIRST
     if (actualItemIndex == 0) { 
       display.drawBitmap(14, yPos, icon_play, 8, 8, SSD1306_WHITE);
       display.setCursor(26, yPos); display.print("Play");
@@ -429,10 +484,26 @@ void drawTrackMenu() {
       display.drawBitmap(14, yPos, icon_shuffle, 8, 8, SSD1306_WHITE);
       display.setCursor(26, yPos); display.print("Shuffle");
     } else {
-      // Pull real track name from the flat array!
-      display.setCursor(textX, yPos);
-      display.print(database[activeArtist].tracks[startIndex + (actualItemIndex - 2)]);
+      const char* trackName = database[activeArtist].tracks[startIndex + (actualItemIndex - 2)];
+      
+      if (actualItemIndex == currentIndex && strlen(trackName) > 16) {
+        // SCROLLING TEXT: Use the moving X coordinate
+        display.setCursor(menuScrollX, yPos);
+        display.print(trackName);
+        
+        // THE CLIPPING TRICK: Draw a black box over the left margin to erase the bleed!
+        display.fillRect(0, yPos, 14, 10, SSD1306_BLACK); 
+      } else {
+        // STATIC TEXT
+        display.setCursor(textX, yPos);
+        display.print(trackName);
+      }
     }
+
+    // 2. DRAW CURSOR LAST (Safely on top of the black mask)
+    display.setCursor(2, yPos);
+    if (actualItemIndex == currentIndex) display.print("> "); else display.print("  "); 
+
     yPos += 12; 
   }
   
